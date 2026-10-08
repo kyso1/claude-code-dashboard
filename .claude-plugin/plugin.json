@@ -1,0 +1,10 @@
+{
+  "name": "dashboard",
+  "version": "0.3.0",
+  "description": "A band above the Claude Code prompt: an animated mini Claude that acts out what Claude is doing, who is working (model, effort, plan) and live ctx / 5h / 7d gauges.",
+  "author": { "name": "kyso1", "url": "https://github.com/kyso1" },
+  "homepage": "https://github.com/kyso1/claude-code-dashboard",
+  "repository": "https://github.com/kyso1/claude-code-dashboard",
+  "license": "MIT",
+  "keywords": ["mod", "dashboard", "statusline", "mascot", "rate-limits"]
+}

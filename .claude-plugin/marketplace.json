@@ -1,0 +1,14 @@
+{
+  "name": "claude-code-dashboard",
+  "owner": {
+    "name": "kyso1"
+  },
+  "plugins": [
+    {
+      "name": "dashboard",
+      "source": "./",
+      "description": "Animated mini Claude, identity row and live ctx / 5h / 7d gauges above the prompt."
+    }
+  ],
+  "description": "Claude Code mods by kyso1: an animated dashboard band above the prompt."
+}

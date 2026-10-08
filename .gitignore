@@ -1,0 +1,5 @@
+# laid by the engine at every load
+.claude-plugin/types/
+# tsc output, if it ever runs without the engine tsconfig
+hooks/*.js
+node_modules/
