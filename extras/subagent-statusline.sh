@@ -18,6 +18,9 @@ exec jq -c '
   def fit(w): if w <= 0 then "" elif length > w then .[0:w-1] + "…" else . + pad(w - length) end;
   def rfit(w): pad(w - length) + .;
   def two: tostring | if length < 2 then "0" + . else . end;
+  # task fields are text a model wrote: drop control characters (C0, DEL, C1) so
+  # an ESC in a label cannot reach the terminal as a live escape sequence
+  def clean: tostring | gsub("\\p{Cc}"; "");
 
   def ktok: if . >= 1e6 then "\(. / 1e5 | floor / 10)M"
             elif . >= 1000 then "\(. / 100 | floor / 10)k"
@@ -42,7 +45,7 @@ exec jq -c '
     ["low","medium","high","xhigh","max"] as $lv
     | if type == "number" then lbl + "\(. / 1000 | floor)k" + off
       else (. as $e | $lv | index($e)) as $n
-        | if $n == null then lbl + tostring + off
+        | if $n == null then lbl + clean + off
           else [range(5) | if . <= $n then fg(stops[.][0]; stops[.][1]; stops[.][2]) + "▰" else dim + "▱" end]
                | join("") + off end
       end;
@@ -64,7 +67,7 @@ exec jq -c '
      elif $t.status == "failed" then fg(247; 92; 97) + "✗"
      elif $t.status == "killed" then dim + "⊘"
      else lbl + "•" end) + off) as $icon
-  | ($t.name // $t.agentType // "agent") as $title
+  | ($t.name // $t.agentType // "agent" | clean) as $title
   | "\($icon) \(fg(200; 170; 255))\u001b[1m\($title | fit(16))\(off)" as $left
 
   # fixed-width fields so the columns line up across rows
@@ -73,7 +76,7 @@ exec jq -c '
   | (lbl + ($tok | ktok | rfit(6)) + off) as $toks
   | (if $used then " " + fuel(100 - $used) + ("\($used)%" | rfit(4)) + off else pad(5) end) as $ctx
   | (lbl + ((($now * 1000 - ($t.startTime // ($now * 1000))) / 1000) | dur | rfit(6)) + off) as $age
-  | (($t.model // "" | capture("claude-(?<f>[a-z]+)").f) // $t.model // "") as $model
+  | (($t.model // "" | capture("claude-(?<f>[a-z]+)").f) // $t.model // "" | clean) as $model
   | (fg(120; 200; 255) + ($model | fit(6)) + off) as $mdl
   | ($t.effort // null | if . == null then "" else effort_pips end | . + pad(5 - vis)) as $eff
   | (($t.tokenSamples // []) | spark(8)) as $spark
@@ -84,7 +87,7 @@ exec jq -c '
   | (if $cols - ($left | vis) - ($full | vis) - 2 >= 10 then $full else $compact end) as $right
   | ($cols - ($left | vis) - ($right | vis) - 2) as $room
   | (if $run then fg(205; 208; 222) else lbl end) as $lc
-  | ($t.label // $t.description // "" | gsub("\\s+"; " ")) as $label
+  | ($t.label // $t.description // "" | clean | gsub("\\s+"; " ")) as $label
   | { id: $t.id,
       content: "\($left) \($lc)\($label | fit($room))\(off) \($right)" }
 '
