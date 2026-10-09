@@ -3,7 +3,7 @@
 // Claude Code samples belongs to one of eight scenes; a verb it learns later
 // falls back on the spinner's mode.
 
-import { DEFAULT_LOOK, type Look } from './look'
+import { DEFAULT_LOOK, type Extra, type Look } from './look'
 import { CLASSIC, type Palette } from './palettes'
 import { CLAUDE, FAINT, TEXT, fit, lift, text, type Cell, type Paint } from './paint'
 import { STAGE_W, blankCanvas, dot, glyph, toCells, type Canvas } from './pixels'
@@ -202,6 +202,69 @@ function party(cv: Canvas, t: number, c: Paint) {
     if ((beat(t, 150) + d) % 2) glyph(cv, cx, cy, '✦', GOLD)
 }
 
+// --- reactions and company (/boneco, part 6) ----------------------------------------
+
+// what just happened to the main thread: a tool failed (when), a permission waits
+export type Reaction = { sustoAt?: number; waiting?: boolean }
+export type ReactEvent = { kind: 'failure' | 'permission' | 'settled' | 'reset'; agentId?: string; interrupt?: boolean }
+export const SUSTO_MS = 1300
+const LOW_CTX = 15 // % of context left under which it sweats
+const ERR: Paint = [0.7, 0.19, 25]
+const PET: Paint = [0.9, 0.03, 80]
+
+export function react(r: Reaction, ev: ReactEvent, now: number): Reaction {
+  if (ev.agentId) return r // a subagent's: the band is the main thread's
+  switch (ev.kind) {
+    case 'failure':
+      return { waiting: false, sustoAt: ev.interrupt ? r.sustoAt : now } // Esc is no failure
+    case 'permission':
+      return { ...r, waiting: true }
+    case 'settled':
+      return { ...r, waiting: false }
+    case 'reset':
+      return {}
+  }
+}
+
+function susto(cv: Canvas, dt: number, c: Paint) {
+  const cell = dt < 450 ? 1 + (Math.floor(dt / 70) % 2) : 1 // shakes a whole cell at a time
+  clawd(cv, cell, { eyes: 'up', armL: 'up', armR: 'up', legs: 0 }, c)
+  glyph(cv, cell + 9, 0, '!', ERR)
+}
+
+function aceno(cv: Canvas, t: number, c: Paint) {
+  clawd(cv, 1, { eyes: blink(t, 'front'), armL: 'out', armR: beat(t, 200) % 2 ? 'up' : 'out', legs: 0 }, c)
+  if (beat(t, 500) % 2) glyph(cv, 10, 0, '?', GOLD)
+}
+
+function ocio(cv: Canvas, t: number, c: Paint) {
+  const p = t % 9000
+  if (p < 2400) clawd(cv, 1, { eyes: beat(t, 600) % 2 ? 'up' : 'front', armL: 'out', armR: 'out', legs: 0 }, c) // looks around
+  else if (p < 3800) {
+    clawd(cv, 1, { eyes: 'shut', armL: 'up', armR: 'up', legs: 0 }, c) // yawns and stretches
+    glyph(cv, 11, 0, 'o', FAINT)
+  } else if (p < 6000) clawd(cv, 1, { eyes: blink(t, 'front'), armL: 'out', armR: 'down', legs: beat(t, 220) % 2 ? 1 : 0 }, c) // taps a foot
+  else idle(cv, t, c, false)
+}
+
+function sweat(cv: Canvas, t: number) {
+  const p = (t / 900) % 1
+  dot(cv, cv.cell * 2 + 16, Math.floor(p * 3), WATER)
+}
+
+// a two-cell companion, wagging its tail: beside the mascot, or behind it on a walk
+function pet(cv: Canvas, t: number, cell: number, tailLeft: boolean) {
+  const x0 = cell * 2
+  for (const [x, y] of [[0, 4], [0, 5], [1, 5], [2, 5], [3, 5], [3, 4]] as const) dot(cv, x0 + x, y, PET)
+  dot(cv, tailLeft ? x0 - 1 : x0 + 4, beat(t, 250) % 2 ? 4 : 5, PET)
+}
+function petFor(cv: Canvas, t: number, scene: Scene | undefined) {
+  if (scene !== 'walk') return pet(cv, t, cv.cell + 10, false)
+  const span = STAGE_W - 9
+  const right = beat(t, 300) % (2 * span) < span
+  pet(cv, t, right ? cv.cell - 4 : cv.cell + 10, right)
+}
+
 // What it acts out: the tool in use when there is one, the turn's verb between
 // tools. The verb is sampled once a turn, so a long turn would play one scene
 // throughout; the tools keep it changing.
@@ -243,18 +306,30 @@ export function phaseOf(m: Mood, now: number): Phase {
 }
 
 // What /boneco picked and what the band knows, for the body color: the palette
-// (gauges' ramp, for 'effort'), context left, model and effort as shown.
-export type StageOpts = BodyCtx & { look?: Look; palette?: Palette; month?: number }
+// (gauges' ramp, for 'effort'), context left, model and effort as shown; and
+// what just happened (a failed tool, a permission waiting).
+export type StageOpts = BodyCtx & { look?: Look; palette?: Palette; month?: number; reaction?: Reaction }
 
 export function drawStage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene, o: StageOpts = {}): Canvas {
   const look = o.look ?? DEFAULT_LOOK
+  const on = (x: Extra) => look.extras.includes(x)
   const phase = phaseOf(m, t)
   const sc = phase === 'work' ? (scene ?? sceneOf(m.word, m.mode)) : undefined
   const cv = blankCanvas({ look, hat: hatFor(look.hat, sc, o.month ?? new Date(t).getMonth()), t }, rowsFor(look))
-  const c = bodyColor(look, accent, o.palette ?? CLASSIC, t, sc, o)
-  if (sc) SCENES[sc](cv, t, c)
+  const sweating = on('suor') && (o.ctxLeft ?? 100) < LOW_CTX
+  const body = bodyColor(look, accent, o.palette ?? CLASSIC, t, sc, o)
+  const c = sweating ? lift(body, 0.03, 0.55) : body
+  const dt = o.reaction?.sustoAt === undefined ? -1 : t - o.reaction.sustoAt // since the tool failed
+  const startled = on('susto') && dt >= 0 && dt < SUSTO_MS
+  const waving = !startled && on('aceno') && !!o.reaction?.waiting
+  if (startled) susto(cv, dt, c)
+  else if (waving) aceno(cv, t, c)
+  else if (sc) SCENES[sc](cv, t, c)
   else if (phase === 'done') party(cv, t, c)
+  else if (phase === 'idle' && on('ocio')) ocio(cv, t, c)
   else idle(cv, t, c, phase === 'sleep')
+  if (sweating) sweat(cv, t)
+  if (on('pet')) petFor(cv, t, startled || waving ? undefined : sc)
   return cv
 }
 
