@@ -6,6 +6,10 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
+import { composeBand } from '../hooks/band.ts'
+import { DEFAULT_LOOK, EYE_MODES, HAT_KEYS, SHAPES, type Look } from '../hooks/look.ts'
+import { OPTIONS } from '../hooks/menu.ts'
+import { PALETTES } from '../hooks/palettes.ts'
 import { STAGE_W, caption, stage, type Mood, type Scene, type Tool } from '../hooks/clawd.ts'
 import { gaugeRow, type Gauge } from '../hooks/gauges.ts'
 import { identityRow, type Identity } from '../hooks/identity.ts'
@@ -197,6 +201,36 @@ const subRows: Grid = out.trim().split('\n').map(l => {
   return cells
 })
 await png(subRows, join(OUT, 'subagents.png'), 2)
+
+// --- 5. looks: what /boneco dresses it in ---------------------------------------------
+const LOOK_AT = T0 + 1000 // idle, eyes open, no blink
+const TILE_W = 18
+const named = (key: 'hat' | 'eyes' | 'shape', value: string) => OPTIONS[key].find(o => o.value === value)?.name ?? value
+const tile = (o: Partial<Look>, label: string): Cell[][] => {
+  const g = stage({ working: false, since: T0 }, LOOK_AT, CLAUDE, undefined, { look: { ...DEFAULT_LOOK, ...o }, month: 9 })
+  const four = g.length === 4 ? g : [[], ...g]
+  return [...four.map(r => r.slice(0, 11)), text(label, FAINT)]
+}
+const shelf = (tiles: Cell[][][]): Cell[][] => [
+  ...Array.from({ length: 5 }, (_, r) => tiles.flatMap(t => pad(t[r] ?? [], TILE_W))),
+  blank(tiles.length * TILE_W),
+]
+const looks: Cell[][] = [
+  ...shelf(HAT_KEYS.slice(0, 7).map(h => tile({ hat: h }, named('hat', h)))),
+  ...shelf(HAT_KEYS.slice(7).map(h => tile({ hat: h }, named('hat', h)))),
+  ...shelf(EYE_MODES.map(e => tile({ eyes: e }, named('eyes', e)))),
+  ...shelf([...SHAPES.map(s => tile({ shape: s }, named('shape', s))), tile({ cheeks: true, duo: true }, 'Bochechas, 2 tons')]),
+]
+await png(css(looks), join(OUT, 'looks.png'), 2)
+
+// --- 6. palettes: the band in each one --------------------------------------------------
+const palRows: Cell[][] = []
+for (const p of PALETTES) {
+  const look: Look = { ...DEFAULT_LOOK, palette: p.key }
+  const grooving: Mood = { working: true, since: T0, word: 'Grooving', mode: 'responding' }
+  palRows.push(text(`${p.name}`, TEXT), ...composeBand({ mood: grooving, scene: 'dance', gauges: GAUGES, ident: IDENT, themeAccent: CLAUDE, look }, T0 + 400, COLS), blank(COLS))
+}
+await png(css(palRows), join(OUT, 'palettes.png'), 1)
 
 await browser.close()
 console.log('ok', OUT)
