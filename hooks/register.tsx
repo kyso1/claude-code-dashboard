@@ -1,19 +1,19 @@
 import type { EngineInterface as Dollar, Register, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
-import { STAGE_W, caption, direct, sceneFor, stage, type Mood, type Scene, type Tool } from './clawd'
-import { gaugeRow, type Gauge } from './gauges'
-import { CAVEMAN, PONYTAIL, identityRow, planOf, prettyModel, type Identity } from './identity'
-import { CLAUDE, encode, fit, fromHex, safe, type Cell, type Paint } from './paint'
+import { composeBand } from './band'
+import { direct, react, sceneFor, type Mood, type ReactEvent, type Reaction, type Scene, type Tool } from './clawd'
+import type { Gauge } from './gauges'
+import { CAVEMAN, PONYTAIL, planOf, prettyModel, type Identity } from './identity'
+import { DEFAULT_LOOK, readLook, type Look } from './look'
+import { CLAUDE, encode, fromHex, safe, type Paint } from './paint'
 import { baseName, homeOf, lastTwo } from './paths'
 
-// The band above the prompt: mini Claude on the left; on the right who is
-// working (model, effort, folder, branch, cost), what it is doing, and the
+// The band above the prompt (band.ts): mini Claude on the left; on the right who
+// is working (model, effort, folder, branch, cost), what it is doing, and the
 // fuel gauges. A mod, not a statusLine command: that redraws at 1 fps at best,
 // and the animations need ~30.
 const FPS = 30
 const KEY = 'dashboard'
-const GAP: Cell[] = [{ ch: ' ', fg: CLAUDE }, { ch: ' ', fg: CLAUDE }]
-const MIN_RIGHT = 60 // narrower than this beside the stage: drop the stage
 const NAME_MAX = 16
 
 export const register: Register = on => {
@@ -24,7 +24,12 @@ export const register: Register = on => {
   let ident: Identity = { modes: [] }
   let band: { requestId: string; columns: number; rows: number } | null = null
   let name: string | undefined // the mascot's, set with /nome; kept across sessions in $.store
+  let look: Look = DEFAULT_LOOK // what /boneco picked; kept across sessions in $.store
+  let reaction: Reaction = {} // a failed tool, a permission asked: drawn only if /boneco turned it on
   const director: { scene?: Scene; since: number } = { since: 0 }
+  const feel = (ev: ReactEvent) => {
+    reaction = react(reaction, ev, Date.now())
+  }
 
   const measure = (context: SessionContextUsage, limits: SessionRateLimit[], usd?: number) => {
     const limit = (kind: string, label: string): Gauge => {
@@ -39,14 +44,10 @@ export const register: Register = on => {
     if (usd !== undefined) ident = { ...ident, usd }
   }
 
-  const rows = (now: number, columns: number): Cell[][] => {
-    const right = columns - STAGE_W - GAP.length
+  const rows = (now: number, columns: number) => {
     if (!mood.working) director.scene = undefined // the next turn opens on its own scene
     const scene = mood.working ? direct(director, sceneFor(mood, tool), now) : undefined
-    const side = (w: number) => [identityRow(ident, accent), caption(mood, tool, now, w, accent, scene, name), gaugeRow(gauges, now, now, w)]
-    if (right < MIN_RIGHT) return side(columns).map(row => fit(row, columns))
-    const rhs = side(right)
-    return stage(mood, now, accent, scene).map((row, i) => [...row, ...GAP, ...fit(rhs[i] ?? [], right)])
+    return composeBand({ mood, tool, scene, gauges, ident, themeAccent: accent, look, reaction, name }, now, columns)
   }
 
   on('session.start', async ($, e, next) => {
@@ -55,6 +56,7 @@ export const register: Register = on => {
     accent = await themeAccent($)
     const stored = await $.store.get('name')
     name = typeof stored === 'string' && stored ? stored : undefined
+    look = readLook(await $.store.get('look'))
     await $.command.register({
       name: 'nome',
       description: 'Dá um nome ao mini Claude da faixa (sem nome: mostra o atual; "-": apaga)',
@@ -93,12 +95,18 @@ export const register: Register = on => {
   const effortOf = (e: { agent_id?: string; effort?: { level: string } }) => {
     if (!e.agent_id && e.effort?.level) ident = { ...ident, effort: e.effort.level }
   }
-  on('classic.PostToolUse', ($, e, next) => (effortOf(e), next(e)))
+  on('classic.PostToolUse', ($, e, next) => (effortOf(e), feel({ kind: 'settled', agentId: e.agent_id }), next(e)))
   on('classic.Stop', ($, e, next) => (effortOf(e), next(e)))
+
+  // the reactions: a failed tool startles it, a permission asked has it wave until answered
+  on('classic.PostToolUseFailure', ($, e, next) => (feel({ kind: 'failure', agentId: e.agent_id, interrupt: e.is_interrupt }), next(e)))
+  on('classic.PermissionRequest', ($, e, next) => (feel({ kind: 'permission', agentId: e.agent_id }), next(e)))
+  on('classic.PermissionDenied', ($, e, next) => (feel({ kind: 'settled', agentId: e.agent_id }), next(e)))
 
   // what the mascot acts out: the turn, the spinner's verb and mode, the tool
   on('prompt.submit', ($, e, next) => {
     mood = { working: true, since: Date.now() }
+    feel({ kind: 'reset' })
     return next(e)
   })
   on('ui.render', { component: 'Spinner' }, ($, e, next) => {
@@ -116,7 +124,10 @@ export const register: Register = on => {
     }
   })
   on('turn.complete', ($, e, next) => {
-    if (!e.agentId) mood = { working: false, since: mood.since, doneAt: Date.now(), durationMs: e.durationMs }
+    if (!e.agentId) {
+      mood = { working: false, since: mood.since, doneAt: Date.now(), durationMs: e.durationMs }
+      feel({ kind: 'settled' })
+    }
     tool = undefined
     return next(e)
   })
@@ -194,6 +205,7 @@ async function settingsEffort($: Dollar, home: string, model: string): Promise<s
 
 // The mascot and the model badge wear the theme's `claude` color when the theme
 // is a custom one (~/.claude/themes/<slug>.json) that sets it; orange otherwise.
+// That is palette P0 ('tema'); the other palettes bring their own (palettes.ts).
 async function themeAccent($: Dollar): Promise<Paint> {
   try {
     const theme = (await $.config.list()).find(r => r.key === 'theme')?.value
