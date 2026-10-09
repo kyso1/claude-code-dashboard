@@ -60,7 +60,7 @@ Uma faixa viva acima do prompt do Claude Code: um mini Claude que encena o que o
 | Olhos | vazados, grandes, LED colorido, óculos escuros, visor; e bochechas |
 | Silhueta | clássica, orelhinhas, cantos redondos, fantasminha |
 | Chapéu | 14 chapéus, figurino por cena ou pelo calendário. Um chapéu põe 1 linha a mais na faixa. |
-| Reações | susto quando uma ferramenta falha, aceno quando pede permissão, suor com pouco contexto, ócio variado, bichinho |
+| Reações | susto quando uma ferramenta falha, aceno quando você responde a um pedido de permissão, suor com pouco contexto, ócio variado, bichinho |
 
 ![Chapéus, olhos e silhuetas](docs/looks.png)
 

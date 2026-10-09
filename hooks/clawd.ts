@@ -204,10 +204,12 @@ function party(cv: Canvas, t: number, c: Paint) {
 
 // --- reactions and company (/boneco, part 6) ----------------------------------------
 
-// what just happened to the main thread: a tool failed (when), a permission waits
-export type Reaction = { sustoAt?: number; waiting?: boolean }
-export type ReactEvent = { kind: 'failure' | 'permission' | 'settled' | 'reset'; agentId?: string; interrupt?: boolean }
+// what just happened to the main thread: a tool failed (when), a permission waits,
+// the band came back after one (when: the dialog hides the band, so it waves then)
+export type Reaction = { sustoAt?: number; waiting?: boolean; waveAt?: number }
+export type ReactEvent = { kind: 'failure' | 'permission' | 'settled' | 'reset' | 'shown'; agentId?: string; interrupt?: boolean }
 export const SUSTO_MS = 1300
+export const ACENO_MS = 1500
 const LOW_CTX = 15 // % of context left under which it sweats
 const ERR: Paint = [0.7, 0.19, 25]
 const PET: Paint = [0.9, 0.03, 80]
@@ -223,6 +225,8 @@ export function react(r: Reaction, ev: ReactEvent, now: number): Reaction {
       return { ...r, waiting: false }
     case 'reset':
       return {}
+    case 'shown':
+      return r.waiting ? { ...r, waiting: false, waveAt: now } : r
   }
 }
 
@@ -234,7 +238,6 @@ function susto(cv: Canvas, dt: number, c: Paint) {
 
 function aceno(cv: Canvas, t: number, c: Paint) {
   clawd(cv, 1, { eyes: blink(t, 'front'), armL: 'out', armR: beat(t, 200) % 2 ? 'up' : 'out', legs: 0 }, c)
-  if (beat(t, 500) % 2) glyph(cv, 10, 0, '?', GOLD)
 }
 
 function ocio(cv: Canvas, t: number, c: Paint) {
@@ -307,7 +310,7 @@ export function phaseOf(m: Mood, now: number): Phase {
 
 // What /boneco picked and what the band knows, for the body color: the palette
 // (gauges' ramp, for 'effort'), context left, model and effort as shown; and
-// what just happened (a failed tool, a permission waiting).
+// what just happened (a failed tool, a permission answered).
 export type StageOpts = BodyCtx & { look?: Look; palette?: Palette; month?: number; reaction?: Reaction }
 
 export function drawStage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene, o: StageOpts = {}): Canvas {
@@ -321,7 +324,8 @@ export function drawStage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Sc
   const c = sweating ? lift(body, 0.03, 0.55) : body
   const dt = o.reaction?.sustoAt === undefined ? -1 : t - o.reaction.sustoAt // since the tool failed
   const startled = on('susto') && dt >= 0 && dt < SUSTO_MS
-  const waving = !startled && on('aceno') && !!o.reaction?.waiting
+  const dw = o.reaction?.waveAt === undefined ? -1 : t - o.reaction.waveAt // since the band came back
+  const waving = !startled && on('aceno') && dw >= 0 && dw < ACENO_MS
   if (startled) susto(cv, dt, c)
   else if (waving) aceno(cv, t, c)
   else if (sc) SCENES[sc](cv, t, c)

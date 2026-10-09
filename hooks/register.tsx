@@ -122,7 +122,7 @@ export const register: Register = on => {
   on('classic.PostToolUse', ($, e, next) => (effortOf(e), feel({ kind: 'settled', agentId: e.agent_id }), next(e)))
   on('classic.Stop', ($, e, next) => (effortOf(e), next(e)))
 
-  // the reactions: a failed tool startles it, a permission asked has it wave until answered
+  // the reactions: a failed tool startles it; a permission answered, it waves as the band comes back
   on('classic.PostToolUseFailure', ($, e, next) => (feel({ kind: 'failure', agentId: e.agent_id, interrupt: e.is_interrupt }), next(e)))
   on('classic.PermissionRequest', ($, e, next) => (feel({ kind: 'permission', agentId: e.agent_id }), next(e)))
   on('classic.PermissionDenied', ($, e, next) => (feel({ kind: 'settled', agentId: e.agent_id }), next(e)))
@@ -268,6 +268,7 @@ export const register: Register = on => {
   })
 }
 
+    feel({ kind: 'shown' })
 // Model, folder, branch, plan and modes: cheap reads. Effort only as settings have it;
 // the turn's own hook events report the live one.
 async function readIdentity($: Dollar): Promise<Omit<Identity, 'usd'>> {

@@ -118,12 +118,13 @@ noel ▄▀▀▀█   palha ▄▄▀▀▀▄▄   laco ▐▄▌
 | Extra | Gatilho | O que faz |
 |---|---|---|
 | susto | `classic.PostToolUseFailure` do thread principal | Por 1,3 s, no lugar da cena: treme entre as células 1 e 2 a cada 70 ms nos primeiros 450 ms, olha para cima com os braços para cima e mostra `!` em `ERR` |
-| aceno | `classic.PermissionRequest` do thread principal | Até a próxima `tool.call`, `classic.PostToolUse`, `classic.PostToolUseFailure`, `classic.PermissionDenied` ou `turn.complete`: acena com o braço direito a cada 200 ms e mostra `?` piscando |
+| aceno | A faixa volta a ser desenhada depois de um `classic.PermissionRequest` do thread principal (a pessoa respondeu) | Por 1,5 s (`ACENO_MS`), no lugar da cena: acena com o braço direito a cada 200 ms, sem glifo |
 | suor | contexto restante < 15% | Em qualquer fase: o corpo fica `lift(c, .03, .55)` e cai uma gota ao lado da cabeça |
 | ocio | fase `idle` | Ciclo de 9 s: olha em volta, boceja e se espreguiça, bate o pé, fica parado |
 | pet | sempre | Bichinho de 2 células: atrás do mascote quando ele passeia, ao lado nas outras cenas, abanando o rabo a cada 250 ms |
 
 - **Prioridade:** susto > aceno > cena, comemoração ou ócio. O suor e o bichinho se somam a qualquer um.
+- **Por que o aceno vem depois:** enquanto o diálogo de permissão está aberto, a faixa não é desenhada; um aceno durante a espera nunca seria visto.
 - **`HOLD_MS`:** só vale entre cenas. Reação entra e sai na hora.
 - **No plano:** confirmar no `index.d.ts` os campos de `PostToolUseFailure` e `PermissionRequest`, inclusive o `agent_id` para filtrar os subagents.
 
@@ -230,7 +231,7 @@ Por isso o `.sh` só funciona no Windows com Git Bash e com `jq` instalado à pa
 - **Paletas:** a rampa em 100 e em 0 bate com as paradas, accents dentro do gamut e `dark: false` invertendo selos e trilhos.
 - **Reações:**
   - **Prioridades:** susto vence aceno, e aceno vence cena.
-  - **Fim do aceno:** acaba quando a ferramenta roda ou é negada.
+  - **Aceno:** só quando a faixa volta depois do pedido, por 1,5 s; esperando, nada muda.
   - **Subagents:** eventos de subagent (com `agent_id`) são ignorados.
 - **Menu**, com o harness de UI (`ui.find`, `ui.press`, `ui.key`):
   - abrir `/boneco chapeu` começa no passo 4;

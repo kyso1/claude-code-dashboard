@@ -72,7 +72,7 @@ export const OPTIONS: Record<StepKey, Option[]> = {
   extras: [
     { id: 'X1', value: 'susto', name: 'Susto no erro', note: 'Uma ferramenta falhou: treme, olha para cima e mostra "!".' },
     { id: 'X2', value: 'suor', name: 'Suando', note: 'Contexto abaixo de 15%: fica pálido e sua.' },
-    { id: 'X3', value: 'aceno', name: 'Aceno', note: 'Esperando sua permissão: acena e mostra "?".' },
+    { id: 'X3', value: 'aceno', name: 'Aceno', note: 'Quando você responde a um pedido de permissão, ele acena por um instante.' },
     { id: 'X4', value: 'ocio', name: 'Ócio variado', note: 'Parado, olha em volta, boceja, se espreguiça e bate o pé.' },
     { id: 'X5', value: 'pet', name: 'Bichinho', note: 'Um companheiro de duas células que vai atrás dele.' },
   ],
@@ -191,7 +191,7 @@ export function previewRows(b: BandState, s: MenuState, now: number, columns: nu
   const st = stage(mood, now, pal.accent, scene, {
     look, palette: pal, model: b.ident.model, effortLevel: b.ident.effort,
     ctxLeft: step === 'extras' ? 9 : step === 'color' ? 100 - ((now / 90) % 100) : 72,
-    reaction: step === 'extras' ? { sustoAt: now - (now % 2600), waiting: true } : undefined, // a startle, then a wave, over and over
+    reaction: step === 'extras' ? { sustoAt: now - (now % 2600), waveAt: now - ((now + 1300) % 2600) } : undefined, // a startle, then a wave, over and over
   })
   const [kind, value] = split(s.focused ?? '')
   const o = step ? (OPTIONS[step].find(o => kind === 'opt' && o.value === value) ?? OPTIONS[step].find(o => isPicked(look, step, o.value))) : undefined

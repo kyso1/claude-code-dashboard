@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { SUSTO_MS, react, stage, type Mood, type Reaction } from './clawd'
+import { ACENO_MS, SUSTO_MS, react, stage, type Mood, type Reaction } from './clawd'
 import { DEFAULT_LOOK, type Extra, type Look } from './look'
 import { CLAUDE, type Cell } from './paint'
 
@@ -20,11 +20,17 @@ test('a failed tool startles it for a moment, over the scene; then the scene is 
   expect(frame(cooking, T0 + 200, wearing(), r)).toBe(frame(cooking, T0 + 200, wearing())) // off unless picked
 })
 
-test('waiting on a permission it waves and asks; a startle wins over the wave', () => {
-  const waving = [0, 250, 500, 750].map(dt => frame(idle, T0 + dt, wearing('aceno'), { waiting: true }))
-  expect(waving.some(f => f.includes('?'))).toBe(true)
+test('a permission answered, it waves for a moment; a startle wins over the wave', () => {
+  const r: Reaction = { waveAt: T0 }
+  const waving = [0, 250, 500, 750].map(dt => frame(idle, T0 + dt, wearing('aceno'), r))
   expect(new Set(waving).size).toBeGreaterThan(1)
-  const both = frame(idle, T0 + 150, wearing('aceno', 'susto'), { waiting: true, sustoAt: T0 + 100 })
+  expect(waving.some((f, i) => f !== frame(idle, T0 + i * 250, wearing()))).toBe(true)
+  expect(waving.some(f => f.includes('?'))).toBe(false) // no glyph: it only waves
+  const after = T0 + ACENO_MS + 10
+  expect(frame(idle, after, wearing('aceno'), r)).toBe(frame(idle, after, wearing()))
+  expect(frame(idle, T0 + 200, wearing(), r)).toBe(frame(idle, T0 + 200, wearing())) // off unless picked
+  expect(frame(idle, T0 + 200, wearing('aceno'), { waiting: true })).toBe(frame(idle, T0 + 200, wearing())) // the band is hidden while it waits
+  const both = frame(idle, T0 + 150, wearing('aceno', 'susto'), { waveAt: T0, sustoAt: T0 + 100 })
   expect(both).toContain('!')
   expect(both).not.toContain('?')
 })
@@ -36,6 +42,9 @@ test('reactions follow the main thread only, and end as the spec says', () => {
   expect(react({}, { kind: 'permission' }, T0)).toEqual({ waiting: true })
   expect(react({ waiting: true, sustoAt: 5 }, { kind: 'settled' }, T0)).toEqual({ waiting: false, sustoAt: 5 })
   expect(react({ waiting: true, sustoAt: 5 }, { kind: 'reset' }, T0)).toEqual({})
+  expect(react({ waiting: true, sustoAt: 5 }, { kind: 'shown' }, T0)).toEqual({ waiting: false, sustoAt: 5, waveAt: T0 }) // answered
+  const calm: Reaction = { sustoAt: 5, waveAt: 1 }
+  expect(react(calm, { kind: 'shown' }, T0)).toBe(calm) // a band shown with nothing asked: unchanged
 })
 
 test('low on context it pales and sweats, the drop beside its head; unknown context, no sweat', () => {
