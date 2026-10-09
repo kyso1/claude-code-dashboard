@@ -58,7 +58,7 @@ exec jq -c '
     | fg(.[0]; .[1]; .[2]);
 
   (.columns // 100) as $cols
-  | (now) as $now
+  | ($ENV.SUBAGENT_STATUSLINE_NOW // now | tonumber) as $now   # fixed clock for extras/check-ps1.sh
   | .tasks[]
   | . as $t
   | ($t.status == "running") as $run
