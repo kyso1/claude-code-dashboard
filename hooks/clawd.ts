@@ -3,11 +3,11 @@
 // Claude Code samples belongs to one of eight scenes; a verb it learns later
 // falls back on the spinner's mode.
 
+import { DEFAULT_LOOK } from './look'
 import { CLAUDE, FAINT, TEXT, fit, lift, text, type Cell, type Paint } from './paint'
+import { STAGE_W, blankCanvas, dot, glyph, toCells, type Canvas } from './pixels'
 
-export const STAGE_W = 22 // cells
-const PW = STAGE_W * 2 // pixels
-const PH = 6
+export { STAGE_W } from './pixels'
 
 export type Scene = 'cook' | 'think' | 'build' | 'dance' | 'walk' | 'magic' | 'grow' | 'wind'
 export type Mode = 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use'
@@ -41,40 +41,6 @@ export function sceneOf(word: string | undefined, mode?: Mode): Scene {
   const hit = BY_VERB.get(key)
   if (hit) return hit
   return mode === 'tool-use' || mode === 'tool-input' ? 'build' : mode === 'responding' ? 'dance' : 'think'
-}
-
-// --- pixels ------------------------------------------------------------------
-
-type Canvas = { px: (Paint | null)[]; glyphs: Map<number, Cell> }
-const QUAD = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█' // index = UL 1 | UR 2 | LL 4 | LR 8
-
-const blankCanvas = (): Canvas => ({ px: new Array<Paint | null>(PW * PH).fill(null), glyphs: new Map() })
-function dot(cv: Canvas, x: number, y: number, p: Paint | null) {
-  x = Math.round(x)
-  y = Math.round(y)
-  if (x >= 0 && x < PW && y >= 0 && y < PH) cv.px[y * PW + x] = p
-}
-function glyph(cv: Canvas, cx: number, cy: number, ch: string, fg: Paint, bg?: Paint) {
-  if (cx >= 0 && cx < STAGE_W && cy >= 0 && cy < 3) cv.glyphs.set(cy * STAGE_W + cx, { ch, fg, bg })
-}
-
-function toCells(cv: Canvas): Cell[][] {
-  return [0, 1, 2].map(cy =>
-    Array.from({ length: STAGE_W }, (_, cx): Cell => {
-      const g = cv.glyphs.get(cy * STAGE_W + cx)
-      if (g) return g
-      const quad = [cv.px[2 * cy * PW + 2 * cx], cv.px[2 * cy * PW + 2 * cx + 1], cv.px[(2 * cy + 1) * PW + 2 * cx], cv.px[(2 * cy + 1) * PW + 2 * cx + 1]]
-      let bits = 0
-      const votes = new Map<Paint, number>()
-      quad.forEach((p, i) => {
-        if (!p) return
-        bits |= 1 << i
-        votes.set(p, (votes.get(p) ?? 0) + 1)
-      })
-      const fg = [...votes].sort((a, b) => b[1] - a[1])[0]?.[0] ?? TEXT
-      return { ch: QUAD[bits] ?? ' ', fg }
-    }),
-  )
 }
 
 // --- the mascot ----------------------------------------------------------------
@@ -268,7 +234,7 @@ export function phaseOf(m: Mood, now: number): Phase {
 }
 
 export function stage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene): Cell[][] {
-  const cv = blankCanvas()
+  const cv = blankCanvas({ look: DEFAULT_LOOK, hat: null, t })
   const phase = phaseOf(m, t)
   if (phase === 'work') SCENES[scene ?? sceneOf(m.word, m.mode)](cv, t, accent)
   else if (phase === 'done') party(cv, t, accent)
