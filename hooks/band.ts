@@ -34,7 +34,7 @@ export function composeBand(b: BandState, now: number, columns: number): Cell[][
   const body = bodyColor(b.look, pal.accent, pal, now, b.mood.working ? b.scene : undefined, o)
   const side = (w: number) => [
     identityRow(b.ident, pal.accent, pal),
-    caption(b.mood, b.tool, now, w, body, b.scene, b.name),
+    caption(b.mood, b.tool, now, w, body, b.scene, b.name, pal),
     gaugeRow(b.gauges, now, now, w, pal),
   ]
   const right = columns - STAGE_W - GAP.length

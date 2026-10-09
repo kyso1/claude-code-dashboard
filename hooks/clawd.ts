@@ -5,7 +5,7 @@
 
 import { DEFAULT_LOOK, type Extra, type Look } from './look'
 import { CLASSIC, type Palette } from './palettes'
-import { CLAUDE, FAINT, TEXT, fit, lift, text, type Cell, type Paint } from './paint'
+import { CLAUDE, FAINT, fit, lift, text, type Cell, type Paint } from './paint'
 import { STAGE_W, blankCanvas, dot, glyph, toCells, type Canvas } from './pixels'
 import { BLUSH, bodyColor, carved, face, ghostHem, hatFor, rowsFor, tones, wearHat, type BodyCtx, type Eyes, type Scene } from './wardrobe'
 
@@ -344,17 +344,18 @@ export function stage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene,
 const STAR = '·✢✳✶✻✽✻✶✳✢'
 const secs = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`)
 
-export function caption(m: Mood, tool: Tool | undefined, t: number, width: number, accent: Paint = CLAUDE, scene?: Scene, name?: string): Cell[] {
+export function caption(m: Mood, tool: Tool | undefined, t: number, width: number, accent: Paint = CLAUDE, scene?: Scene, name?: string, pal: Palette = CLASSIC): Cell[] {
   const phase = phaseOf(m, t)
   const who = name ? `${name} ` : ''
-  if (phase === 'done') return fit(text(name ? `✓ ${name} terminou em ${secs(m.durationMs ?? 0)}` : `✓ feito em ${secs(m.durationMs ?? 0)}`, [0.8, 0.15, 150]), width)
-  if (phase === 'sleep') return fit(text(`z  ${who}${name ? 'está ' : ''}dormindo`, FAINT), width)
-  if (phase === 'idle') return fit(text(`✻ ${who}${name ? 'está ' : ''}pronto`, FAINT), width)
+  const green: Paint = pal.dark ? [0.8, 0.15, 150] : [0.5, 0.15, 150] // darker on a light terminal
+  if (phase === 'done') return fit(text(name ? `✓ ${name} terminou em ${secs(m.durationMs ?? 0)}` : `✓ feito em ${secs(m.durationMs ?? 0)}`, green), width)
+  if (phase === 'sleep') return fit(text(`z  ${who}${name ? 'está ' : ''}dormindo`, pal.faint), width)
+  if (phase === 'idle') return fit(text(`✻ ${who}${name ? 'está ' : ''}pronto`, pal.faint), width)
 
   const star = STAR[beat(t, 120) % STAR.length] ?? '✻'
   const said = (m.message ?? m.word ?? 'Working').replace(/(…|\.\.\.)$/, '')
   const label = LABELS[scene ?? sceneOf(m.word, m.mode)]
   const mode = m.mode && MODE_LABELS[m.mode] !== label ? `   ${MODE_LABELS[m.mode]}` : '' // not "pensando  pensando"
-  const doing = tool ? [...text(`   › ${tool.name} `, TEXT), ...text(tool.detail, FAINT)] : text(mode, FAINT)
-  return fit([...text(`${star} ${said}…`, accent), ...text(`  ${name ? `${name} está ${label}` : label}`, FAINT), ...doing], width)
+  const doing = tool ? [...text(`   › ${tool.name} `, pal.text), ...text(tool.detail, pal.faint)] : text(mode, pal.faint)
+  return fit([...text(`${star} ${said}…`, accent), ...text(`  ${name ? `${name} está ${label}` : label}`, pal.faint), ...doing], width)
 }
