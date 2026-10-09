@@ -4,6 +4,7 @@ import { STAGE_W, caption, direct, sceneFor, stage, type Mood, type Scene, type 
 import { gaugeRow, type Gauge } from './gauges'
 import { CAVEMAN, PONYTAIL, identityRow, planOf, prettyModel, type Identity } from './identity'
 import { CLAUDE, encode, fit, fromHex, safe, type Cell, type Paint } from './paint'
+import { baseName, homeOf, lastTwo } from './paths'
 
 // The band above the prompt: mini Claude on the left; on the right who is
 // working (model, effort, folder, branch, cost), what it is doing, and the
@@ -151,7 +152,7 @@ export const register: Register = on => {
 // the turn's own hook events report the live one.
 async function readIdentity($: Dollar): Promise<Omit<Identity, 'usd'>> {
   const cwd = await $.session.cwd()
-  const home = (await $.env.get('HOME')) ?? ''
+  const home = await homeDir($)
   const flag = (f: string) => $.fs.read(`${home}/.claude/${f}`).then(s => s.trim() !== '', () => false)
   const [model, branch, caveman, ponytail, plan] = await Promise.all([
     $.session.model(),
@@ -163,7 +164,7 @@ async function readIdentity($: Dollar): Promise<Omit<Identity, 'usd'>> {
   return {
     model: prettyModel(model),
     effort: await settingsEffort($, home, model),
-    folder: cwd.split('/').filter(Boolean).at(-1),
+    folder: baseName(cwd),
     branch: branch || undefined,
     plan,
     modes: [...(caveman ? [CAVEMAN] : []), ...(ponytail ? [PONYTAIL] : [])],
@@ -176,7 +177,7 @@ function detail(args: Record<string, unknown>): string {
     const v = args[k]
     if (typeof v !== 'string' || !v.trim()) continue
     const first = v.trim().split('\n')[0] ?? ''
-    return k === 'file_path' ? first.split('/').slice(-2).join('/') : first
+    return k === 'file_path' ? lastTwo(first) : first
   }
   return ''
 }
@@ -197,10 +198,15 @@ async function themeAccent($: Dollar): Promise<Paint> {
   try {
     const theme = (await $.config.list()).find(r => r.key === 'theme')?.value
     if (typeof theme !== 'string' || !theme.startsWith('custom:')) return CLAUDE
-    const home = await $.env.get('HOME')
+    const home = await homeDir($)
     const file = JSON.parse(await $.fs.read(`${home}/.claude/themes/${theme.slice('custom:'.length)}.json`))
     return fromHex(String(file?.overrides?.claude ?? '')) ?? CLAUDE
   } catch {
     return CLAUDE
   }
+}
+
+// HOME, or on Windows (where it may be unset) USERPROFILE
+async function homeDir($: Dollar): Promise<string> {
+  return homeOf(await $.env.get('HOME'), await $.env.get('USERPROFILE'))
 }
