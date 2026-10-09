@@ -182,6 +182,7 @@ export const register: Register = on => {
     menu = openAt(e.args)
     pane = null
     const opened = await $.ui.open({ id: MENU_ID, title: 'Mini Claude', focus: true, closeOnEscape: true, holdToasts: true, rows: 18 })
+    $.ui.invalidate('ui.render') // already open: redraw it on the part asked for
     return opened.isPlaced ? {} : { text: `O menu do mini Claude abre quando houver espaço: ${opened.reason}` }
   })
 
@@ -267,6 +268,7 @@ export const register: Register = on => {
     const columns = e.props.bodyColumns
     const grid = rows(Date.now(), columns)
     band = { requestId: e.requestId, columns, rows: grid.length }
+    feel({ kind: 'shown' })
     return (
       <Box marginTop={1}>
         <Raster key={KEY} columns={columns} rows={grid.length} cells={encode(grid, columns)} />
@@ -275,7 +277,6 @@ export const register: Register = on => {
   })
 }
 
-    feel({ kind: 'shown' })
 // Model, folder, branch, plan and modes: cheap reads. Effort only as settings have it;
 // the turn's own hook events report the live one.
 async function readIdentity($: Dollar): Promise<Omit<Identity, 'usd'>> {
