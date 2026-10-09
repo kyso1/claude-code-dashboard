@@ -19,6 +19,7 @@ import { baseName, homeOf, lastTwo } from './paths'
 const FPS = 30
 const KEY = 'dashboard'
 const NAME_MAX = 16
+const POKE_MS = 500 // how often to ask for the band back while it is not drawn
 
 export const register: Register = on => {
   let gauges: Gauge[] = []
@@ -27,6 +28,7 @@ export const register: Register = on => {
   let accent: Paint = CLAUDE
   let ident: Identity = { modes: [] }
   let band: { requestId: string; columns: number; rows: number } | null = null
+  let poked = 0 // when the band was last asked back (POKE_MS)
   let name: string | undefined // the mascot's, set with /nome; kept across sessions in $.store
   let look: Look = DEFAULT_LOOK // what /boneco picked; kept across sessions in $.store
   let reaction: Reaction = {} // a failed tool, a permission asked: drawn only if /boneco turned it on
@@ -89,6 +91,11 @@ export const register: Register = on => {
           const { deny } = await $.ui.blit({ requestId: band.requestId, key: KEY, cells: encode(grid, band.columns) })
           if (deny) band = null // collapsed or unmounted; the next render brings it back
         }
+      } else if (gauges.length && now - poked >= POKE_MS) {
+        // a dialog hides the band (a denied blit) and the engine shows it again with
+        // no render of its own: without this it stays frozen on its last frame
+        poked = now
+        $.ui.invalidate('ui.render')
       }
       if (menu && pane) {
         const grid = previewRows(bandState(), menu, now, pane.columns)
