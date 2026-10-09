@@ -2,7 +2,7 @@
 # row per subagent in the agent panel, the same rows subagent-statusline.sh
 # prints (extras/check-ps1.sh compares them).
 #
-#   ⠹ Explore         find auth callers…   ▁▂▅▇▃▂▁▁ 45.2k  23% │ 1m23s │ sonnet ▰▰▰▱▱
+#   spinner, name, label, token sparkline, tokens, context %, age, model, effort pips
 #
 # settings.json:
 #   "subagentStatusLine": { "type": "command", "command":
@@ -17,6 +17,14 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 [Console]::InputEncoding = $utf8
 [Console]::OutputEncoding = $utf8
 $INV = [Globalization.CultureInfo]::InvariantCulture
+
+# the glyphs are built from code points: this file stays pure ASCII because
+# PowerShell 5.1 reads a BOM-less .ps1 in the ANSI code page (extras/check-ps1.sh
+# fails on any non-ASCII byte)
+$ELL = [string][char]0x2026
+$BAR0 = [string][char]0x2581
+$PIPON = [string][char]0x25B0
+$PIPOFF = [string][char]0x25B1
 
 $E = [char]27
 function Fg([int]$r, [int]$g, [int]$b) { "$E[38;2;$r;$g;${b}m" }
@@ -43,7 +51,7 @@ function Vis([string]$s) { Len ($s -replace "$E\[[0-9;]*m", '') }
 function Fit([string]$s, [int]$w) {
   if ($w -le 0) { return '' }
   $p = Points $s
-  if ($p.Count -gt $w) { return (-join $p.GetRange(0, $w - 1)) + '…' }
+  if ($p.Count -gt $w) { return (-join $p.GetRange(0, $w - 1)) + $ELL }
   return $s + (Pad ($w - $p.Count))
 }
 function RFit([string]$s, [int]$w) { (Pad ($w - (Len $s))) + $s }
@@ -69,7 +77,7 @@ function Dur([double]$s) {
 }
 
 # token growth per tick as a sparkline; bar height also ramps the color
-$BARS = '▁▂▃▄▅▆▇█'
+$BARS = -join (0x2581..0x2588 | ForEach-Object { [char]$_ })
 function Spark($samples, [int]$w) {
   $s = @()
   if ($null -ne $samples) { $s = @($samples) }
@@ -77,7 +85,7 @@ function Spark($samples, [int]$w) {
   if ($d.Count -gt $w) { $d = @($d[($d.Count - $w)..($d.Count - 1)]) }
   $mx = 0
   foreach ($x in $d) { if ($x -gt $mx) { $mx = $x } }
-  $out = $DIM + ('▁' * [math]::Max(0, $w - $d.Count))
+  $out = $DIM + ($BAR0 * [math]::Max(0, $w - $d.Count))
   foreach ($x in $d) {
     $l = 0
     if ($mx -gt 0) { $l = [int](Round ($x * 7 / $mx)) }
@@ -96,7 +104,7 @@ function Pips($effort) {
   if ($n -lt 0) { return $LBL + (Clean $effort) + $OFF }
   $out = ''
   for ($i = 0; $i -lt 5; $i++) {
-    if ($i -le $n) { $c = $STOPS[$i]; $out += (Fg $c[0] $c[1] $c[2]) + '▰' } else { $out += $DIM + '▱' }
+    if ($i -le $n) { $c = $STOPS[$i]; $out += (Fg $c[0] $c[1] $c[2]) + $PIPON } else { $out += $DIM + $PIPOFF }
   }
   return $out + $OFF
 }
@@ -115,16 +123,16 @@ $cols = 100
 if ($null -ne $in.columns) { $cols = [int]$in.columns }
 if ($env:SUBAGENT_STATUSLINE_NOW) { $now = [double]::Parse($env:SUBAGENT_STATUSLINE_NOW, $INV) }
 else { $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0 }
-$SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+$SPIN = -join (@(0x280B, 0x2819, 0x2839, 0x2838, 0x283C, 0x2834, 0x2826, 0x2827, 0x2807, 0x280F) | ForEach-Object { [char]$_ })
 
 foreach ($t in @($in.tasks)) {
   if ($null -eq $t) { continue }
   $run = $t.status -ceq 'running'
   if ($run) { $icon = (Fg 120 200 255) + $SPIN[[int]([math]::Floor($now) % 10)] }
-  elseif ($t.status -ceq 'completed') { $icon = (Fg 117 223 143) + '✓' }
-  elseif ($t.status -ceq 'failed') { $icon = (Fg 247 92 97) + '✗' }
-  elseif ($t.status -ceq 'killed') { $icon = $DIM + '⊘' }
-  else { $icon = $LBL + '•' }
+  elseif ($t.status -ceq 'completed') { $icon = (Fg 117 223 143) + [string][char]0x2713 }
+  elseif ($t.status -ceq 'failed') { $icon = (Fg 247 92 97) + [string][char]0x2717 }
+  elseif ($t.status -ceq 'killed') { $icon = $DIM + [string][char]0x2298 }
+  else { $icon = $LBL + [string][char]0x2022 }
   $icon += $OFF
 
   $title = 'agent'
@@ -149,7 +157,7 @@ foreach ($t in @($in.tasks)) {
   if ($null -ne $t.effort) { $eff = Pips $t.effort }
   $eff += Pad (5 - (Vis $eff))
   $spark = Spark $t.tokenSamples 8
-  $sep = $DIM + ' │ ' + $OFF
+  $sep = $DIM + ' ' + [char]0x2502 + ' ' + $OFF
 
   $full = "$spark $toks$ctx$sep$age$sep$mdl $eff"
   $compact = "$toks$sep$age"

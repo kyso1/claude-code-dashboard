@@ -22,4 +22,7 @@ for cols in 130 50; do
   got=$(printf '%s' "$input" | "$ps" -NoProfile -File "$here/subagent-statusline.ps1" | jq -c .)
   if [[ "$want" == "$got" ]]; then echo "ok   columns=$cols"; else echo "FAIL columns=$cols"; diff <(echo "$want") <(echo "$got") || true; fail=1; fi
 done
+# Windows PowerShell 5.1 reads a BOM-less .ps1 in the ANSI code page, so the
+# script must be pure ASCII (glyphs are built from code points)
+if LC_ALL=C grep -q '[^ -~[:space:]]' "$here/subagent-statusline.ps1"; then echo "FAIL subagent-statusline.ps1 has non-ASCII bytes (Windows PowerShell 5.1 would misread them)"; fail=1; else echo "ok   ascii-only"; fi
 exit $fail
