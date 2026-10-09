@@ -3,13 +3,15 @@
 // Claude Code samples belongs to one of eight scenes; a verb it learns later
 // falls back on the spinner's mode.
 
-import { DEFAULT_LOOK } from './look'
+import { DEFAULT_LOOK, type Look } from './look'
+import { CLASSIC, type Palette } from './palettes'
 import { CLAUDE, FAINT, TEXT, fit, lift, text, type Cell, type Paint } from './paint'
 import { STAGE_W, blankCanvas, dot, glyph, toCells, type Canvas } from './pixels'
+import { BLUSH, bodyColor, carved, face, ghostHem, hatFor, rowsFor, tones, wearHat, type BodyCtx, type Eyes, type Scene } from './wardrobe'
 
 export { STAGE_W } from './pixels'
+export type { Scene } from './wardrobe'
 
-export type Scene = 'cook' | 'think' | 'build' | 'dance' | 'walk' | 'magic' | 'grow' | 'wind'
 export type Mode = 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use'
 export type Mood = { working: boolean; word?: string; message?: string | null; mode?: Mode; since: number; doneAt?: number; durationMs?: number }
 export type Tool = { id: string; name: string; detail: string }
@@ -45,7 +47,6 @@ export function sceneOf(word: string | undefined, mode?: Mode): Scene {
 
 // --- the mascot ----------------------------------------------------------------
 
-type Eyes = 'front' | 'up' | 'shut'
 type Arm = 'out' | 'up' | 'down'
 type Pose = { eyes: Eyes; armL: Arm; armR: Arm; legs: 0 | 1 | 2 }
 
@@ -54,17 +55,25 @@ type Pose = { eyes: Eyes; armL: Arm; armR: Arm; legs: 0 | 1 | 2 }
 // one pixel off it recombines the quadrants into a slanted blob with no eyes.
 // So motion is whole-cell steps, arms, legs, eyes and color, never half cells;
 // and the eyes only move within their own cell (front <-> up), never sideways.
-const EYES: Record<Eyes, number[][]> = { front: [[5, 1], [12, 1]], up: [[5, 0], [12, 0]], shut: [] }
+// What it wears (/boneco) comes with the canvas, drawn by wardrobe.ts.
 const ARMS: Record<Arm, number[][]> = { out: [[1, 2], [2, 2]], up: [[2, 1], [1, 0]], down: [[2, 3], [1, 4]] }
 const LEGS = [[4, 6, 11, 13], [3, 6, 11, 14], [4, 7, 10, 13]]
 
 function clawd(cv: Canvas, cell: number, pose: Pose, c: Paint) {
+  const { look, hat, t } = cv.dress
+  cv.cell = cell
   const x0 = cell * 2
-  for (let y = 0; y < 4; y++) for (let x = 3; x <= 14; x++) dot(cv, x0 + x, y, c)
-  for (const [x = 0, y = 0] of EYES[pose.eyes]) dot(cv, x0 + x, y, null)
-  for (const [x = 0, y = 0] of ARMS[pose.armL]) dot(cv, x0 + x, y, c)
-  for (const [x = 0, y = 0] of ARMS[pose.armR]) dot(cv, x0 + 17 - x, y, c)
-  for (const x of LEGS[pose.legs] ?? []) dot(cv, x0 + x, 4, c)
+  const [top, bot] = tones(look, c)
+  const at = (y: number) => (y < 2 ? top : bot)
+  const shape = hat && look.shape === 'orelhas' ? 'classica' : look.shape // a hat hides the ears
+  for (let y = 0; y < 4; y++) for (let x = 3; x <= 14; x++) if (!carved(shape, x, y)) dot(cv, x0 + x, y, at(y))
+  face(cv, x0, shape === 'orelhas' && pose.eyes === 'up' ? 'front' : pose.eyes, look, t) // an eye up would hole an ear
+  for (const [x = 0, y = 0] of ARMS[pose.armL]) dot(cv, x0 + x, y, at(y))
+  for (const [x = 0, y = 0] of ARMS[pose.armR]) dot(cv, x0 + 17 - x, y, at(y))
+  if (shape === 'fantasma') ghostHem(cv, x0, t, bot)
+  else for (const x of LEGS[pose.legs] ?? []) dot(cv, x0 + x, 4, bot)
+  if (look.cheeks) dot(cv, x0 + 4, 2, BLUSH), dot(cv, x0 + 13, 2, BLUSH)
+  if (hat) wearHat(cv, x0, hat, top, t)
 }
 
 const beat = (t: number, ms: number) => Math.floor(t / ms)
@@ -233,13 +242,24 @@ export function phaseOf(m: Mood, now: number): Phase {
   return now - (m.doneAt ?? m.since) > SLEEP_MS ? 'sleep' : 'idle'
 }
 
-export function stage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene): Cell[][] {
-  const cv = blankCanvas({ look: DEFAULT_LOOK, hat: null, t })
+// What /boneco picked and what the band knows, for the body color: the palette
+// (gauges' ramp, for 'effort'), context left, model and effort as shown.
+export type StageOpts = BodyCtx & { look?: Look; palette?: Palette; month?: number }
+
+export function drawStage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene, o: StageOpts = {}): Canvas {
+  const look = o.look ?? DEFAULT_LOOK
   const phase = phaseOf(m, t)
-  if (phase === 'work') SCENES[scene ?? sceneOf(m.word, m.mode)](cv, t, accent)
-  else if (phase === 'done') party(cv, t, accent)
-  else idle(cv, t, accent, phase === 'sleep')
-  return toCells(cv)
+  const sc = phase === 'work' ? (scene ?? sceneOf(m.word, m.mode)) : undefined
+  const cv = blankCanvas({ look, hat: hatFor(look.hat, sc, o.month ?? new Date(t).getMonth()), t }, rowsFor(look))
+  const c = bodyColor(look, accent, o.palette ?? CLASSIC, t, sc, o)
+  if (sc) SCENES[sc](cv, t, c)
+  else if (phase === 'done') party(cv, t, c)
+  else idle(cv, t, c, phase === 'sleep')
+  return cv
+}
+
+export function stage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene, o: StageOpts = {}): Cell[][] {
+  return toCells(drawStage(m, t, accent, scene, o))
 }
 
 const STAR = '·✢✳✶✻✽✻✶✳✢'
