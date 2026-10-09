@@ -3,13 +3,15 @@
 // Claude Code samples belongs to one of eight scenes; a verb it learns later
 // falls back on the spinner's mode.
 
-import { CLAUDE, FAINT, TEXT, fit, lift, text, type Cell, type Paint } from './paint'
+import { DEFAULT_LOOK, type Extra, type Look } from './look'
+import { CLASSIC, type Palette } from './palettes'
+import { CLAUDE, FAINT, fit, lift, text, type Cell, type Paint } from './paint'
+import { STAGE_W, blankCanvas, dot, glyph, toCells, type Canvas } from './pixels'
+import { BLUSH, bodyColor, carved, face, ghostHem, hatFor, rowsFor, tones, wearHat, type BodyCtx, type Eyes, type Scene } from './wardrobe'
 
-export const STAGE_W = 22 // cells
-const PW = STAGE_W * 2 // pixels
-const PH = 6
+export { STAGE_W } from './pixels'
+export type { Scene } from './wardrobe'
 
-export type Scene = 'cook' | 'think' | 'build' | 'dance' | 'walk' | 'magic' | 'grow' | 'wind'
 export type Mode = 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use'
 export type Mood = { working: boolean; word?: string; message?: string | null; mode?: Mode; since: number; doneAt?: number; durationMs?: number }
 export type Tool = { id: string; name: string; detail: string }
@@ -43,43 +45,8 @@ export function sceneOf(word: string | undefined, mode?: Mode): Scene {
   return mode === 'tool-use' || mode === 'tool-input' ? 'build' : mode === 'responding' ? 'dance' : 'think'
 }
 
-// --- pixels ------------------------------------------------------------------
-
-type Canvas = { px: (Paint | null)[]; glyphs: Map<number, Cell> }
-const QUAD = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█' // index = UL 1 | UR 2 | LL 4 | LR 8
-
-const blankCanvas = (): Canvas => ({ px: new Array<Paint | null>(PW * PH).fill(null), glyphs: new Map() })
-function dot(cv: Canvas, x: number, y: number, p: Paint | null) {
-  x = Math.round(x)
-  y = Math.round(y)
-  if (x >= 0 && x < PW && y >= 0 && y < PH) cv.px[y * PW + x] = p
-}
-function glyph(cv: Canvas, cx: number, cy: number, ch: string, fg: Paint, bg?: Paint) {
-  if (cx >= 0 && cx < STAGE_W && cy >= 0 && cy < 3) cv.glyphs.set(cy * STAGE_W + cx, { ch, fg, bg })
-}
-
-function toCells(cv: Canvas): Cell[][] {
-  return [0, 1, 2].map(cy =>
-    Array.from({ length: STAGE_W }, (_, cx): Cell => {
-      const g = cv.glyphs.get(cy * STAGE_W + cx)
-      if (g) return g
-      const quad = [cv.px[2 * cy * PW + 2 * cx], cv.px[2 * cy * PW + 2 * cx + 1], cv.px[(2 * cy + 1) * PW + 2 * cx], cv.px[(2 * cy + 1) * PW + 2 * cx + 1]]
-      let bits = 0
-      const votes = new Map<Paint, number>()
-      quad.forEach((p, i) => {
-        if (!p) return
-        bits |= 1 << i
-        votes.set(p, (votes.get(p) ?? 0) + 1)
-      })
-      const fg = [...votes].sort((a, b) => b[1] - a[1])[0]?.[0] ?? TEXT
-      return { ch: QUAD[bits] ?? ' ', fg }
-    }),
-  )
-}
-
 // --- the mascot ----------------------------------------------------------------
 
-type Eyes = 'front' | 'up' | 'shut'
 type Arm = 'out' | 'up' | 'down'
 type Pose = { eyes: Eyes; armL: Arm; armR: Arm; legs: 0 | 1 | 2 }
 
@@ -88,17 +55,25 @@ type Pose = { eyes: Eyes; armL: Arm; armR: Arm; legs: 0 | 1 | 2 }
 // one pixel off it recombines the quadrants into a slanted blob with no eyes.
 // So motion is whole-cell steps, arms, legs, eyes and color, never half cells;
 // and the eyes only move within their own cell (front <-> up), never sideways.
-const EYES: Record<Eyes, number[][]> = { front: [[5, 1], [12, 1]], up: [[5, 0], [12, 0]], shut: [] }
+// What it wears (/boneco) comes with the canvas, drawn by wardrobe.ts.
 const ARMS: Record<Arm, number[][]> = { out: [[1, 2], [2, 2]], up: [[2, 1], [1, 0]], down: [[2, 3], [1, 4]] }
 const LEGS = [[4, 6, 11, 13], [3, 6, 11, 14], [4, 7, 10, 13]]
 
 function clawd(cv: Canvas, cell: number, pose: Pose, c: Paint) {
+  const { look, hat, t } = cv.dress
+  cv.cell = cell
   const x0 = cell * 2
-  for (let y = 0; y < 4; y++) for (let x = 3; x <= 14; x++) dot(cv, x0 + x, y, c)
-  for (const [x = 0, y = 0] of EYES[pose.eyes]) dot(cv, x0 + x, y, null)
-  for (const [x = 0, y = 0] of ARMS[pose.armL]) dot(cv, x0 + x, y, c)
-  for (const [x = 0, y = 0] of ARMS[pose.armR]) dot(cv, x0 + 17 - x, y, c)
-  for (const x of LEGS[pose.legs] ?? []) dot(cv, x0 + x, 4, c)
+  const [top, bot] = tones(look, c)
+  const at = (y: number) => (y < 2 ? top : bot)
+  const shape = hat && look.shape === 'orelhas' ? 'classica' : look.shape // a hat hides the ears
+  for (let y = 0; y < 4; y++) for (let x = 3; x <= 14; x++) if (!carved(shape, x, y)) dot(cv, x0 + x, y, at(y))
+  face(cv, x0, shape === 'orelhas' && pose.eyes === 'up' ? 'front' : pose.eyes, look, t) // an eye up would hole an ear
+  for (const [x = 0, y = 0] of ARMS[pose.armL]) dot(cv, x0 + x, y, at(y))
+  for (const [x = 0, y = 0] of ARMS[pose.armR]) dot(cv, x0 + 17 - x, y, at(y))
+  if (shape === 'fantasma') ghostHem(cv, x0, t, bot)
+  else for (const x of LEGS[pose.legs] ?? []) dot(cv, x0 + x, 4, bot)
+  if (look.cheeks) dot(cv, x0 + 4, 2, BLUSH), dot(cv, x0 + 13, 2, BLUSH)
+  if (hat) wearHat(cv, x0, hat, top, t)
 }
 
 const beat = (t: number, ms: number) => Math.floor(t / ms)
@@ -227,6 +202,72 @@ function party(cv: Canvas, t: number, c: Paint) {
     if ((beat(t, 150) + d) % 2) glyph(cv, cx, cy, '✦', GOLD)
 }
 
+// --- reactions and company (/boneco, part 6) ----------------------------------------
+
+// what just happened to the main thread: a tool failed (when), a permission waits,
+// the band came back after one (when: the dialog hides the band, so it waves then)
+export type Reaction = { sustoAt?: number; waiting?: boolean; waveAt?: number }
+export type ReactEvent = { kind: 'failure' | 'permission' | 'settled' | 'reset' | 'shown'; agentId?: string; interrupt?: boolean }
+export const SUSTO_MS = 1300
+export const ACENO_MS = 1500
+const LOW_CTX = 15 // % of context left under which it sweats
+const ERR: Paint = [0.7, 0.19, 25]
+const PET: Paint = [0.9, 0.03, 80]
+
+export function react(r: Reaction, ev: ReactEvent, now: number): Reaction {
+  if (ev.agentId) return r // a subagent's: the band is the main thread's
+  switch (ev.kind) {
+    case 'failure':
+      return { waiting: false, sustoAt: ev.interrupt ? r.sustoAt : now } // Esc is no failure
+    case 'permission':
+      return { ...r, waiting: true }
+    case 'settled':
+      return { ...r, waiting: false }
+    case 'reset':
+      return {}
+    case 'shown':
+      return r.waiting ? { ...r, waiting: false, waveAt: now } : r
+  }
+}
+
+function susto(cv: Canvas, dt: number, c: Paint) {
+  const cell = dt < 450 ? 1 + (Math.floor(dt / 70) % 2) : 1 // shakes a whole cell at a time
+  clawd(cv, cell, { eyes: 'up', armL: 'up', armR: 'up', legs: 0 }, c)
+  glyph(cv, cell + 9, 0, '!', ERR)
+}
+
+function aceno(cv: Canvas, t: number, c: Paint) {
+  clawd(cv, 1, { eyes: blink(t, 'front'), armL: 'out', armR: beat(t, 200) % 2 ? 'up' : 'out', legs: 0 }, c)
+}
+
+function ocio(cv: Canvas, t: number, c: Paint) {
+  const p = t % 9000
+  if (p < 2400) clawd(cv, 1, { eyes: beat(t, 600) % 2 ? 'up' : 'front', armL: 'out', armR: 'out', legs: 0 }, c) // looks around
+  else if (p < 3800) {
+    clawd(cv, 1, { eyes: 'shut', armL: 'up', armR: 'up', legs: 0 }, c) // yawns and stretches
+    glyph(cv, 11, 0, 'o', FAINT)
+  } else if (p < 6000) clawd(cv, 1, { eyes: blink(t, 'front'), armL: 'out', armR: 'down', legs: beat(t, 220) % 2 ? 1 : 0 }, c) // taps a foot
+  else idle(cv, t, c, false)
+}
+
+function sweat(cv: Canvas, t: number) {
+  const p = (t / 900) % 1
+  dot(cv, cv.cell * 2 + 16, Math.floor(p * 3), WATER)
+}
+
+// a two-cell companion, wagging its tail: beside the mascot, or behind it on a walk
+function pet(cv: Canvas, t: number, cell: number, tailLeft: boolean) {
+  const x0 = cell * 2
+  for (const [x, y] of [[0, 4], [0, 5], [1, 5], [2, 5], [3, 5], [3, 4]] as const) dot(cv, x0 + x, y, PET)
+  dot(cv, tailLeft ? x0 - 1 : x0 + 4, beat(t, 250) % 2 ? 4 : 5, PET)
+}
+function petFor(cv: Canvas, t: number, scene: Scene | undefined) {
+  if (scene !== 'walk') return pet(cv, t, cv.cell + 10, false)
+  const span = STAGE_W - 9
+  const right = beat(t, 300) % (2 * span) < span
+  pet(cv, t, right ? cv.cell - 4 : cv.cell + 10, right)
+}
+
 // What it acts out: the tool in use when there is one, the turn's verb between
 // tools. The verb is sampled once a turn, so a long turn would play one scene
 // throughout; the tools keep it changing.
@@ -267,29 +308,54 @@ export function phaseOf(m: Mood, now: number): Phase {
   return now - (m.doneAt ?? m.since) > SLEEP_MS ? 'sleep' : 'idle'
 }
 
-export function stage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene): Cell[][] {
-  const cv = blankCanvas()
+// What /boneco picked and what the band knows, for the body color: the palette
+// (gauges' ramp, for 'effort'), context left, model and effort as shown; and
+// what just happened (a failed tool, a permission answered).
+export type StageOpts = BodyCtx & { look?: Look; palette?: Palette; month?: number; reaction?: Reaction }
+
+export function drawStage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene, o: StageOpts = {}): Canvas {
+  const look = o.look ?? DEFAULT_LOOK
+  const on = (x: Extra) => look.extras.includes(x)
   const phase = phaseOf(m, t)
-  if (phase === 'work') SCENES[scene ?? sceneOf(m.word, m.mode)](cv, t, accent)
-  else if (phase === 'done') party(cv, t, accent)
-  else idle(cv, t, accent, phase === 'sleep')
-  return toCells(cv)
+  const sc = phase === 'work' ? (scene ?? sceneOf(m.word, m.mode)) : undefined
+  const cv = blankCanvas({ look, hat: hatFor(look.hat, sc, o.month ?? new Date(t).getMonth()), t }, rowsFor(look))
+  const sweating = on('suor') && (o.ctxLeft ?? 100) < LOW_CTX
+  const body = bodyColor(look, accent, o.palette ?? CLASSIC, t, sc, o)
+  const c = sweating ? lift(body, 0.03, 0.55) : body
+  const dt = o.reaction?.sustoAt === undefined ? -1 : t - o.reaction.sustoAt // since the tool failed
+  const startled = on('susto') && dt >= 0 && dt < SUSTO_MS
+  const dw = o.reaction?.waveAt === undefined ? -1 : t - o.reaction.waveAt // since the band came back
+  const waving = !startled && on('aceno') && dw >= 0 && dw < ACENO_MS
+  if (startled) susto(cv, dt, c)
+  else if (waving) aceno(cv, t, c)
+  else if (sc) SCENES[sc](cv, t, c)
+  else if (phase === 'done') party(cv, t, c)
+  else if (phase === 'idle' && on('ocio')) ocio(cv, t, c)
+  else idle(cv, t, c, phase === 'sleep')
+  if (sweating) sweat(cv, t)
+  if (on('pet')) petFor(cv, t, startled || waving ? undefined : sc)
+  return cv
+}
+
+export function stage(m: Mood, t: number, accent: Paint = CLAUDE, scene?: Scene, o: StageOpts = {}): Cell[][] {
+  return toCells(drawStage(m, t, accent, scene, o))
 }
 
 const STAR = '·✢✳✶✻✽✻✶✳✢'
 const secs = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`)
 
-export function caption(m: Mood, tool: Tool | undefined, t: number, width: number, accent: Paint = CLAUDE, scene?: Scene, name?: string): Cell[] {
+export function caption(m: Mood, tool: Tool | undefined, t: number, width: number, accent: Paint = CLAUDE, scene?: Scene, name?: string, pal: Palette = CLASSIC): Cell[] {
   const phase = phaseOf(m, t)
   const who = name ? `${name} ` : ''
-  if (phase === 'done') return fit(text(name ? `✓ ${name} terminou em ${secs(m.durationMs ?? 0)}` : `✓ feito em ${secs(m.durationMs ?? 0)}`, [0.8, 0.15, 150]), width)
-  if (phase === 'sleep') return fit(text(`z  ${who}${name ? 'está ' : ''}dormindo`, FAINT), width)
-  if (phase === 'idle') return fit(text(`✻ ${who}${name ? 'está ' : ''}pronto`, FAINT), width)
+  const green: Paint = pal.dark ? [0.8, 0.15, 150] : [0.5, 0.15, 150] // darker on a light terminal
+  if (phase === 'done') return fit(text(name ? `✓ ${name} terminou em ${secs(m.durationMs ?? 0)}` : `✓ feito em ${secs(m.durationMs ?? 0)}`, green), width)
+  if (phase === 'sleep') return fit(text(`z  ${who}${name ? 'está ' : ''}dormindo`, pal.faint), width)
+  if (phase === 'idle') return fit(text(`✻ ${who}${name ? 'está ' : ''}pronto`, pal.faint), width)
 
   const star = STAR[beat(t, 120) % STAR.length] ?? '✻'
   const said = (m.message ?? m.word ?? 'Working').replace(/(…|\.\.\.)$/, '')
   const label = LABELS[scene ?? sceneOf(m.word, m.mode)]
   const mode = m.mode && MODE_LABELS[m.mode] !== label ? `   ${MODE_LABELS[m.mode]}` : '' // not "pensando  pensando"
-  const doing = tool ? [...text(`   › ${tool.name} `, TEXT), ...text(tool.detail, FAINT)] : text(mode, FAINT)
-  return fit([...text(`${star} ${said}…`, accent), ...text(`  ${name ? `${name} está ${label}` : label}`, FAINT), ...doing], width)
+  const doing = tool ? [...text(`   › ${tool.name} `, pal.text), ...text(tool.detail, pal.faint)] : text(mode, pal.faint)
+  return fit([...text(`${star} ${said}…`, accent), ...text(`  ${name ? `${name} está ${label}` : label}`, pal.faint), ...doing], width)
 }

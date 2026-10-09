@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BOLT, CAVEMAN, identityRow, planOf, prettyModel } from './identity'
+import { PALETTES } from './palettes'
 import { CAP_L, CAP_R, CLAUDE } from './paint'
 
 const str = (row: ReturnType<typeof identityRow>) => row.map(c => c.ch).join('')
@@ -29,4 +30,12 @@ test('on a subscription the cost is what the API would have charged, next to the
   const row = str(identityRow({ model: 'Opus 5.5', usd: 12.3, plan: 'Max 5x', modes: [] }, CLAUDE))
   expect(row.endsWith(`$12.30 via API ${CAP_L}Max 5x${CAP_R}`)).toBe(true)
   expect(str(identityRow({ usd: 1, modes: [] }, CLAUDE))).toBe('$1.00')
+})
+
+test('the row takes the palette: its ramp on the pips, the same glyphs', () => {
+  const tokyo = PALETTES.find(p => p.key === 'tokyo')!
+  const id = { model: 'Opus 5.5', effort: 'low', folder: 'x', modes: [] }
+  const row = identityRow(id, tokyo.accent, tokyo)
+  expect(row.find(c => c.ch === '▰')!.fg).toEqual(tokyo.ramp(100))
+  expect(str(row)).toBe(str(identityRow(id, CLAUDE)))
 })

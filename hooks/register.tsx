@@ -1,19 +1,25 @@
 import type { EngineInterface as Dollar, Register, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
-import { STAGE_W, caption, direct, sceneFor, stage, type Mood, type Scene, type Tool } from './clawd'
-import { gaugeRow, type Gauge } from './gauges'
-import { CAVEMAN, PONYTAIL, identityRow, planOf, prettyModel, type Identity } from './identity'
-import { CLAUDE, encode, fit, fromHex, safe, type Cell, type Paint } from './paint'
+import { composeBand } from './band'
+import { STAGE_W, direct, react, sceneFor, type Mood, type ReactEvent, type Reaction, type Scene, type Tool } from './clawd'
+import type { Gauge } from './gauges'
+import { CAVEMAN, PONYTAIL, planOf, prettyModel, type Identity } from './identity'
+import { DEFAULT_LOOK, readLook, type Look } from './look'
+import {
+  MENU_ID, OPTIONS, PREVIEW_KEY, STEPS, SUMMARY, SWATCHES, hotkey, isPicked, openAt, press, previewRows, progress, summary, title, typeHex,
+  type MenuState, type Press,
+} from './menu'
+import { CLAUDE, encode, fromHex, safe, type Paint } from './paint'
+import { baseName, homeOf, lastTwo } from './paths'
 
-// The band above the prompt: mini Claude on the left; on the right who is
-// working (model, effort, folder, branch, cost), what it is doing, and the
+// The band above the prompt (band.ts): mini Claude on the left; on the right who
+// is working (model, effort, folder, branch, cost), what it is doing, and the
 // fuel gauges. A mod, not a statusLine command: that redraws at 1 fps at best,
 // and the animations need ~30.
 const FPS = 30
 const KEY = 'dashboard'
-const GAP: Cell[] = [{ ch: ' ', fg: CLAUDE }, { ch: ' ', fg: CLAUDE }]
-const MIN_RIGHT = 60 // narrower than this beside the stage: drop the stage
 const NAME_MAX = 16
+const POKE_MS = 500 // how often to ask for the band back while it is not drawn
 
 export const register: Register = on => {
   let gauges: Gauge[] = []
@@ -22,8 +28,16 @@ export const register: Register = on => {
   let accent: Paint = CLAUDE
   let ident: Identity = { modes: [] }
   let band: { requestId: string; columns: number; rows: number } | null = null
+  let poked = 0 // when the band was last asked back (POKE_MS)
   let name: string | undefined // the mascot's, set with /nome; kept across sessions in $.store
+  let look: Look = DEFAULT_LOOK // what /boneco picked; kept across sessions in $.store
+  let reaction: Reaction = {} // a failed tool, a permission asked: drawn only if /boneco turned it on
+  let menu: MenuState | undefined // /boneco open: which part, what the focus is on
+  let pane: { columns: number; rows: number } | null = null // the menu's preview Raster, as last drawn
   const director: { scene?: Scene; since: number } = { since: 0 }
+  const feel = (ev: ReactEvent) => {
+    reaction = react(reaction, ev, Date.now())
+  }
 
   const measure = (context: SessionContextUsage, limits: SessionRateLimit[], usd?: number) => {
     const limit = (kind: string, label: string): Gauge => {
@@ -38,14 +52,12 @@ export const register: Register = on => {
     if (usd !== undefined) ident = { ...ident, usd }
   }
 
-  const rows = (now: number, columns: number): Cell[][] => {
-    const right = columns - STAGE_W - GAP.length
+  const bandState = () => ({ mood, tool, scene: director.scene, gauges, ident, themeAccent: accent, look, reaction, name })
+
+  const rows = (now: number, columns: number) => {
     if (!mood.working) director.scene = undefined // the next turn opens on its own scene
     const scene = mood.working ? direct(director, sceneFor(mood, tool), now) : undefined
-    const side = (w: number) => [identityRow(ident, accent), caption(mood, tool, now, w, accent, scene, name), gaugeRow(gauges, now, now, w)]
-    if (right < MIN_RIGHT) return side(columns).map(row => fit(row, columns))
-    const rhs = side(right)
-    return stage(mood, now, accent, scene).map((row, i) => [...row, ...GAP, ...fit(rhs[i] ?? [], right)])
+    return composeBand({ mood, tool, scene, gauges, ident, themeAccent: accent, look, reaction, name }, now, columns)
   }
 
   on('session.start', async ($, e, next) => {
@@ -54,25 +66,47 @@ export const register: Register = on => {
     accent = await themeAccent($)
     const stored = await $.store.get('name')
     name = typeof stored === 'string' && stored ? stored : undefined
+    look = readLook(await $.store.get('look'))
     await $.command.register({
       name: 'nome',
       description: 'Dá um nome ao mini Claude da faixa (sem nome: mostra o atual; "-": apaga)',
       argumentHint: '<nome>',
     })
+    await $.command.register({
+      name: 'boneco',
+      description: 'Personaliza o mini Claude e as cores da faixa, uma parte por vez',
+      argumentHint: '[paleta|cor|olhos|silhueta|chapeu|reacoes]',
+    })
     const polled = await readIdentity($)
     ident = { ...ident, ...polled, effort: ident.effort ?? polled.effort }
 
     $.clock.every(1000 / FPS, async () => {
-      if (!band) return
       const now = Date.now()
-      const grid = rows(now, band.columns)
-      if (grid.length !== band.rows) {
-        band = null
+      if (band) {
+        const grid = rows(now, band.columns)
+        if (grid.length !== band.rows) {
+          band = null
+          $.ui.invalidate('ui.render')
+        } else {
+          const { deny } = await $.ui.blit({ requestId: band.requestId, key: KEY, cells: encode(grid, band.columns) })
+          if (deny) band = null // collapsed or unmounted; the next render brings it back
+        }
+      } else if (gauges.length && now - poked >= POKE_MS) {
+        // a dialog hides the band (a denied blit) and the engine shows it again with
+        // no render of its own: without this it stays frozen on its last frame
+        poked = now
         $.ui.invalidate('ui.render')
-        return
       }
-      const { deny } = await $.ui.blit({ requestId: band.requestId, key: KEY, cells: encode(grid, band.columns) })
-      if (deny) band = null // collapsed or unmounted; the next render brings it back
+      if (menu && pane) {
+        const grid = previewRows(bandState(), menu, now, pane.columns)
+        if (grid.length !== pane.rows) {
+          pane = null // a hat came or went: the pane redraws at the new height
+          $.ui.invalidate('ui.render')
+        } else {
+          const { deny } = await $.ui.blit({ requestId: MENU_ID, key: PREVIEW_KEY, cells: encode(grid, pane.columns) })
+          if (deny) pane = null
+        }
+      }
     })
     // ponytail: who and where are polled every 5s, not hooked per way each can change
     $.clock.every(5000, async () => {
@@ -92,12 +126,18 @@ export const register: Register = on => {
   const effortOf = (e: { agent_id?: string; effort?: { level: string } }) => {
     if (!e.agent_id && e.effort?.level) ident = { ...ident, effort: e.effort.level }
   }
-  on('classic.PostToolUse', ($, e, next) => (effortOf(e), next(e)))
+  on('classic.PostToolUse', ($, e, next) => (effortOf(e), feel({ kind: 'settled', agentId: e.agent_id }), next(e)))
   on('classic.Stop', ($, e, next) => (effortOf(e), next(e)))
+
+  // the reactions: a failed tool startles it; a permission answered, it waves as the band comes back
+  on('classic.PostToolUseFailure', ($, e, next) => (feel({ kind: 'failure', agentId: e.agent_id, interrupt: e.is_interrupt }), next(e)))
+  on('classic.PermissionRequest', ($, e, next) => (feel({ kind: 'permission', agentId: e.agent_id }), next(e)))
+  on('classic.PermissionDenied', ($, e, next) => (feel({ kind: 'settled', agentId: e.agent_id }), next(e)))
 
   // what the mascot acts out: the turn, the spinner's verb and mode, the tool
   on('prompt.submit', ($, e, next) => {
     mood = { working: true, since: Date.now() }
+    feel({ kind: 'reset' })
     return next(e)
   })
   on('ui.render', { component: 'Spinner' }, ($, e, next) => {
@@ -115,7 +155,10 @@ export const register: Register = on => {
     }
   })
   on('turn.complete', ($, e, next) => {
-    if (!e.agentId) mood = { working: false, since: mood.since, doneAt: Date.now(), durationMs: e.durationMs }
+    if (!e.agentId) {
+      mood = { working: false, since: mood.since, doneAt: Date.now(), durationMs: e.durationMs }
+      feel({ kind: 'settled' })
+    }
     tool = undefined
     return next(e)
   })
@@ -133,12 +176,99 @@ export const register: Register = on => {
     return { text: `Agora o mini Claude se chama ${asked}.` }
   })
 
+  // /boneco: the menu, one part at a time; each pick is saved at once
+  on('command.run', { command: 'boneco' }, async ($, e) => {
+    look = readLook(await $.store.get('look')) // another session may have changed it
+    menu = openAt(e.args)
+    pane = null
+    const opened = await $.ui.open({ id: MENU_ID, title: 'Mini Claude', focus: true, closeOnEscape: true, holdToasts: true, rows: 18 })
+    $.ui.invalidate('ui.render') // already open: redraw it on the part asked for
+    return opened.isPlaced ? {} : { text: `O menu do mini Claude abre quando houver espaço: ${opened.reason}` }
+  })
+
+  on('ui.focus', { component: 'Pane', requestId: MENU_ID }, ($, e, next) => {
+    if (menu) menu = { ...menu, focused: e.element }
+    return next(e)
+  })
+
+  on('ui.close', { id: MENU_ID }, ($, e, next) => {
+    menu = undefined
+    pane = null
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: MENU_ID }, ($, e, next) => {
+    if (!menu) return next(e)
+    const s = menu
+    const step = STEPS[s.step]
+    const { Box, Text, Button, Input, Raster } = $.ui.resolve(e)
+    const columns = Math.max(STAGE_W + 2, e.props.bodyColumns)
+    const grid = previewRows(bandState(), s, Date.now(), columns)
+    pane = e.surface === 'terminal' ? { columns, rows: grid.length } : null
+    const done = (r: Press) => {
+      if (r.look !== look) {
+        look = r.look
+        void $.store.set('look', look)
+      }
+      menu = r.close ? undefined : { ...r.state, focused: undefined }
+      if (r.close) void $.ui.close({ id: MENU_ID })
+      $.ui.invalidate('ui.render')
+    }
+    const act = (key: string) => () => done(press(look, s, key))
+    const options = step && !s.sub ? OPTIONS[step.key] : []
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text bold>{title(s)}</Text>
+        {pane ? <Raster key={PREVIEW_KEY} columns={columns} rows={grid.length} cells={encode(grid, columns)} /> : null}
+        {s.step === SUMMARY ? <Text>{summary(look).join('\n')}</Text> : null}
+        {options.length ? (
+          <Box flexWrap="wrap" columnGap={2}>
+            {options.map((o, i) => (
+              <Button key={`opt:${o.value}`} hotkey={hotkey(i)} plain autoFocus={i === 0 || undefined} onPress={act(`opt:${o.value}`)}>
+                {`${step && isPicked(look, step.key, o.value) ? '✓ ' : ''}${o.name}`}
+              </Button>
+            ))}
+          </Box>
+        ) : null}
+        {s.sub ? (
+          <Box flexDirection="column">
+            <Box flexWrap="wrap" columnGap={2}>
+              {SWATCHES[s.sub].map(([hex, label], i) => (
+                <Button key={`sw:${hex}`} hotkey={hotkey(i)} plain autoFocus={i === 0 || undefined} onPress={act(`sw:${hex}`)}>
+                  <Text color={hex}>■</Text>
+                  {` ${label}`}
+                </Button>
+              ))}
+            </Box>
+            {s.sub === 'fixa' ? <Input key="hex" label="ou um hex " placeholder="#rrggbb" submitLabel="usar" onSubmit={v => done(typeHex(look, s, v))} /> : null}
+            {s.error ? <Text dimColor>{`✗ ${safe(s.error)}`}</Text> : null}
+          </Box>
+        ) : null}
+        {step?.key === 'color' && !s.sub ? (
+          <Button key="tog:duo" hotkey="t" plain onPress={act('tog:duo')}>{`Dois tons: ${look.duo ? 'ligado' : 'desligado'}`}</Button>
+        ) : null}
+        {step?.key === 'eyes' && !s.sub ? (
+          <Button key="tog:cheeks" hotkey="t" plain onPress={act('tog:cheeks')}>{`Bochechas: ${look.cheeks ? 'ligadas' : 'desligadas'}`}</Button>
+        ) : null}
+        <Text dimColor>{progress(s)}</Text>
+        <Box columnGap={2}>
+          {s.step > 0 || s.sub ? <Button key="nav:back" hotkey="v" plain onPress={act('nav:back')}>← voltar</Button> : null}
+          {step?.key === 'extras' ? <Button key="nav:next" hotkey="c" plain onPress={act('nav:next')}>Continuar</Button> : null}
+          {s.step === SUMMARY ? <Button key="nav:restart" hotkey="r" plain onPress={act('nav:restart')}>Recomeçar</Button> : null}
+          {s.step === SUMMARY ? <Button key="nav:close" hotkey="f" plain autoFocus onPress={act('nav:close')}>Fechar</Button> : null}
+          <Text dimColor>setas: prévia · Enter: escolhe · Esc: sai</Text>
+        </Box>
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
     if (e.surface !== 'terminal' || e.props.hasSurvey || !gauges.length) return next(e)
     const { Box, Raster } = $.ui.resolve(e)
     const columns = e.props.bodyColumns
     const grid = rows(Date.now(), columns)
     band = { requestId: e.requestId, columns, rows: grid.length }
+    feel({ kind: 'shown' })
     return (
       <Box marginTop={1}>
         <Raster key={KEY} columns={columns} rows={grid.length} cells={encode(grid, columns)} />
@@ -151,7 +281,7 @@ export const register: Register = on => {
 // the turn's own hook events report the live one.
 async function readIdentity($: Dollar): Promise<Omit<Identity, 'usd'>> {
   const cwd = await $.session.cwd()
-  const home = (await $.env.get('HOME')) ?? ''
+  const home = await homeDir($)
   const flag = (f: string) => $.fs.read(`${home}/.claude/${f}`).then(s => s.trim() !== '', () => false)
   const [model, branch, caveman, ponytail, plan] = await Promise.all([
     $.session.model(),
@@ -163,7 +293,7 @@ async function readIdentity($: Dollar): Promise<Omit<Identity, 'usd'>> {
   return {
     model: prettyModel(model),
     effort: await settingsEffort($, home, model),
-    folder: cwd.split('/').filter(Boolean).at(-1),
+    folder: baseName(cwd),
     branch: branch || undefined,
     plan,
     modes: [...(caveman ? [CAVEMAN] : []), ...(ponytail ? [PONYTAIL] : [])],
@@ -176,7 +306,7 @@ function detail(args: Record<string, unknown>): string {
     const v = args[k]
     if (typeof v !== 'string' || !v.trim()) continue
     const first = v.trim().split('\n')[0] ?? ''
-    return k === 'file_path' ? first.split('/').slice(-2).join('/') : first
+    return k === 'file_path' ? lastTwo(first) : first
   }
   return ''
 }
@@ -193,14 +323,20 @@ async function settingsEffort($: Dollar, home: string, model: string): Promise<s
 
 // The mascot and the model badge wear the theme's `claude` color when the theme
 // is a custom one (~/.claude/themes/<slug>.json) that sets it; orange otherwise.
+// That is palette P0 ('tema'); the other palettes bring their own (palettes.ts).
 async function themeAccent($: Dollar): Promise<Paint> {
   try {
     const theme = (await $.config.list()).find(r => r.key === 'theme')?.value
     if (typeof theme !== 'string' || !theme.startsWith('custom:')) return CLAUDE
-    const home = await $.env.get('HOME')
+    const home = await homeDir($)
     const file = JSON.parse(await $.fs.read(`${home}/.claude/themes/${theme.slice('custom:'.length)}.json`))
     return fromHex(String(file?.overrides?.claude ?? '')) ?? CLAUDE
   } catch {
     return CLAUDE
   }
+}
+
+// HOME, or on Windows (where it may be unset) USERPROFILE
+async function homeDir($: Dollar): Promise<string> {
+  return homeOf(await $.env.get('HOME'), await $.env.get('USERPROFILE'))
 }

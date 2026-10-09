@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { DONE_MS, HOLD_MS, LABELS, STAGE_W, VERBS, caption, direct, phaseOf, sceneFor, sceneOf, stage, type Mood, type Scene } from './clawd'
-import { safe, type Cell } from './paint'
+import { paletteOf } from './palettes'
+import { CLAUDE, FAINT, TEXT, safe, type Cell } from './paint'
 
 const str = (rows: Cell[][]) => rows.map(r => r.map(c => c.ch).join('')).join('\n')
 const T0 = 1_000_000
@@ -112,4 +113,20 @@ test('the mode is not said twice when the scene already says it', () => {
   expect(row).toContain('Kiko está pensando')
   expect(row.split('pensando').length - 1).toBe(1)
   expect(str([caption(working('Sautéing', 'thinking'), undefined, T0, 100, undefined, 'cook')])).toContain('cozinhando   pensando')
+})
+
+test('the caption wears the palette: on Papel, its ink; the same glyphs', () => {
+  const papel = paletteOf('papel', CLAUDE)
+  const tool = { id: 'x', name: 'Bash', detail: 'npm test' }
+  const plain = caption(working('Sautéing'), tool, T0, 100)
+  const light = caption(working('Sautéing'), tool, T0, 100, undefined, undefined, undefined, papel)
+  expect(str([light])).toBe(str([plain]))
+  const at = str([plain]).indexOf('Bash')
+  expect(plain[at]!.fg).toEqual(TEXT)
+  expect(light[at]!.fg).toEqual(papel.text)
+  expect(plain[at + 5]!.fg).toEqual(FAINT) // the detail
+  expect(light[at + 5]!.fg).toEqual(papel.faint)
+  const done: Mood = { working: false, since: T0, doneAt: T0, durationMs: 3000 }
+  expect(caption(done, undefined, T0 + 10, 100)[0]!.fg).toEqual([0.8, 0.15, 150])
+  expect(caption(done, undefined, T0 + 10, 100, undefined, undefined, undefined, papel)[0]!.fg).toEqual([0.5, 0.15, 150]) // dark enough on paper
 })

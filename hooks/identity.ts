@@ -1,18 +1,19 @@
 // The identity row, moved here from ~/.claude/statusline.sh: model, effort,
 // folder, branch, cost and the active modes, in the band's own look (a rounded
-// badge in the theme's accent, effort pips on the gauges' ramp).
+// badge in the accent, effort pips on the palette's ramp).
 
-import { ramp } from './gauges'
-import { CAP_L, CAP_R, FAINT, TEXT, text, type Cell, type Paint } from './paint'
+import { CLASSIC, type Palette } from './palettes'
+import { CAP_L, CAP_R, text, type Cell, type Paint } from './paint'
 
 export type Identity = { model?: string; effort?: string; folder?: string; branch?: string; usd?: number; plan?: string; modes: string[] }
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 const GAP = '   '
 const PLAN: Paint = [0.42, 0.09, 85] // a gold badge
+const PLAN_LIGHT: Paint = [0.87, 0.07, 85]
 const icon = (code: number) => String.fromCharCode(code) // Nerd Font glyphs, as the old status line drew them
 export const BOLT = icon(0xf0e7)
-const FOLDER = icon(0xf07b)
+export const FOLDER = icon(0xf07b)
 const BRANCH = icon(0xe0a0)
 export const CAVEMAN = icon(0xf6d5)
 export const PONYTAIL = icon(0xf1b0)
@@ -35,23 +36,28 @@ export function prettyModel(id: string): string {
   return m ? `${title} ${m[2]}${m[3] ? `.${m[3]}` : ''}` : title
 }
 
-export function identityRow(id: Identity, accent: Paint): Cell[] {
+export function identityRow(id: Identity, accent: Paint, pal: Palette = CLASSIC): Cell[] {
   const [, C, hue] = accent
-  const badge: Paint = [0.33, C * 0.45, hue]
+  const badge: Paint = pal.dark ? [0.33, C * 0.45, hue] : [0.88, C * 0.35, hue]
+  const ink: Paint = pal.dark ? [0.9, C * 0.5, hue] : [0.32, C * 0.7, hue]
   const out: Cell[] = []
-  const gap = () => out.length && out.push(...text(GAP, TEXT))
+  const gap = () => out.length && out.push(...text(GAP, pal.text))
 
-  if (id.model) out.push({ ch: CAP_L, fg: badge }, ...text(`${BOLT} ${id.model}`, [0.9, C * 0.5, hue], badge), { ch: CAP_R, fg: badge })
+  if (id.model) out.push({ ch: CAP_L, fg: badge }, ...text(`${BOLT} ${id.model}`, ink, badge), { ch: CAP_R, fg: badge })
   if (id.effort) {
     gap()
     const n = EFFORTS.indexOf(id.effort)
-    if (n >= 0) for (let i = 0; i < 5; i++) out.push({ ch: i <= n ? '▰' : '▱', fg: i <= n ? ramp(100 - 25 * i) : FAINT })
-    out.push(...text(n >= 0 ? ` ${id.effort}` : id.effort, n >= 0 ? ramp(100 - 25 * n) : FAINT))
+    if (n >= 0) for (let i = 0; i < 5; i++) out.push({ ch: i <= n ? '▰' : '▱', fg: i <= n ? pal.ramp(100 - 25 * i) : pal.faint })
+    out.push(...text(n >= 0 ? ` ${id.effort}` : id.effort, n >= 0 ? pal.ramp(100 - 25 * n) : pal.faint))
   }
-  if (id.folder) gap(), out.push(...text(`${FOLDER} `, [0.74, 0.11, 300]), ...text(id.folder, TEXT))
-  if (id.branch) gap(), out.push(...text(`${BRANCH} `, [0.8, 0.11, 165]), ...text(id.branch, TEXT))
-  if (id.usd !== undefined) gap(), out.push(...text(`$${id.usd.toFixed(2)}${id.plan ? ' via API' : ''}`, FAINT))
-  if (id.plan) out.push(...text(' ', TEXT), { ch: CAP_L, fg: PLAN }, ...text(id.plan, [0.92, 0.08, 85], PLAN), { ch: CAP_R, fg: PLAN })
-  if (id.modes.length) out.push(...text(` ${id.modes.join(' ')}`, FAINT))
+  if (id.folder) gap(), out.push(...text(`${FOLDER} `, pal.folder), ...text(id.folder, pal.text))
+  if (id.branch) gap(), out.push(...text(`${BRANCH} `, pal.branch), ...text(id.branch, pal.text))
+  if (id.usd !== undefined) gap(), out.push(...text(`$${id.usd.toFixed(2)}${id.plan ? ' via API' : ''}`, pal.faint))
+  if (id.plan) {
+    const plan = pal.dark ? PLAN : PLAN_LIGHT
+    const planInk: Paint = pal.dark ? [0.92, 0.08, 85] : [0.36, 0.09, 70]
+    out.push(...text(' ', pal.text), { ch: CAP_L, fg: plan }, ...text(id.plan, planInk, plan), { ch: CAP_R, fg: plan })
+  }
+  if (id.modes.length) out.push(...text(` ${id.modes.join(' ')}`, pal.faint))
   return out
 }
