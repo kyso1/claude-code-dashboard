@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { gaugeRow, PAUSE, RADIUS, ramp, SPEED } from './gauges'
+import { PALETTES } from './palettes'
 import { CAP_L, CAP_R, rgb, type Cell } from './paint'
 
 const str = (cells: Cell[]) => cells.map(c => c.ch).join('')
@@ -67,4 +68,14 @@ test('a gauge under 15% breathes; one above does not', () => {
   const badge = (left: number, dt: number) => sum(gaugeRow([{ label: '5h', left }], NOW, restOf(40) + dt)[1]?.bg)
   expect(badge(10, 0)).not.toBe(badge(10, 350))
   expect(badge(60, 0)).toBe(badge(60, 350))
+})
+
+test('a light palette draws light badges and tracks with the same glyphs', () => {
+  const papel = PALETTES.find(p => p.key === 'papel')!
+  const g = [{ label: 'ctx', left: 50 }]
+  const light = gaugeRow(g, NOW, restOf(40), Infinity, papel)
+  const dark = gaugeRow(g, NOW, restOf(40))
+  expect(light[1]!.bg![0]).toBeGreaterThan(0.8) // the badge behind "CTX"
+  expect(dark[1]!.bg![0]).toBeLessThan(0.4)
+  expect(str(light)).toBe(str(dark))
 })
